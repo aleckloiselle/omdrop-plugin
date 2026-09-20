@@ -185,6 +185,9 @@ omdrop -- send and receive files with nearby Apple devices
   firewall ACTION   install or remove Omdrop's narrow UFW receiver rule
   version           the plugin version, for bug reports
 
+Aliases, if you reach for a different word:
+  start = on      stop = off      list = peers      vis, viz = visibility
+
 Examples:
   omdrop on 10m
   omdrop on forever
@@ -1563,17 +1566,21 @@ systemctl --user status $UNIT"
   printf 'Macs will see "%s"\n' "$new"
 }
 
+# Aliases exist because the words are guessable but not memorable: someone who
+# has used systemctl reaches for start/stop, and someone who has used a peer
+# tool reaches for list. Accepting the near-miss costs one word here and saves
+# a person re-reading the help to learn a synonym we could simply have taken.
 case "${1:-status}" in
-  on)     shift; cmd_on "$@" ;;
-  off)    shift; cmd_off ;;
+  on|start)   shift; cmd_on "$@" ;;
+  off|stop)   shift; cmd_off ;;
   toggle) shift; cmd_toggle "$@" ;;
   status) shift; cmd_status "$@" ;;
   send)   shift; cmd_send "$@" ;;
-  peers)  shift; cmd_peers "$@" ;;
+  peers|list) shift; cmd_peers "$@" ;;
   name)   shift; cmd_name "$@" ;;
   dir)    shift; cmd_dir "$@" ;;
   limit)  shift; cmd_limit "$@" ;;
-  visibility|vis) shift; cmd_visibility "$@" ;;
+  visibility|vis|viz) shift; cmd_visibility "$@" ;;
   senders) shift; cmd_senders "$@" ;;
   setup)  shift; cmd_setup "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;

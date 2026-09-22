@@ -75,12 +75,11 @@ A file that arrives is saved there, copied to the clipboard, and announced in a 
 Everything the panel does is also available from the command line:
 
 ```bash
-omdrop on 10m        # visible to everyone for ten minutes
-omdrop on 3          # a bare number is minutes
-omdrop on -c 10m     # only known senders may send
-omdrop on -e 10m     # anyone nearby may send (the default)
+omdrop on 15         # visible to everyone for 15 minutes
+omdrop on -c 10m     # Contacts Only may send, for 10 minutes
+omdrop on -e 10m     # Everyone nearby may send (the default)
 omdrop on once       # until one file arrives
-omdrop status        # what is true right now
+omdrop status        # current state of omdrop
 omdrop name "Study Mac"
 omdrop dir ~/Drops
 omdrop limit 30      # cap one transfer at 30% of currently free disk space
@@ -92,7 +91,7 @@ By default anyone nearby can send to you. To accept files only from people you
 choose:
 
 ```bash
-omdrop senders add you@example.com      # an Apple ID email or phone number
+omdrop senders add you@icloud.com       # an Apple ID email or phone number
 omdrop senders list
 omdrop visibility contacts              # only those senders are accepted
 omdrop visibility everyone              # back to the default
@@ -139,11 +138,12 @@ percentage would allow a larger transfer.
 Sending is a command: the toolbar menu has no send button yet. Turn a window on first. That is what hears the devices around you, and what fills the peer table `send` chooses from.
 
 ```bash
-omdrop on 10m                                   # a window, so devices are heard
-omdrop peers                                    # what is nearby
-omdrop send ~/photo.jpg                         # the only device heard
-omdrop send --to 6c:58:23 ~/photo.jpg           # any part of an address picks one
-omdrop send --wait 120 ~/photo.jpg              # keep trying for two minutes
+omdrop on                                       # turn on omdrop, so devices are seen
+omdrop peers -n                                 # lists nearby devices, with names (-n)
+omdrop send ~/photo.jpg                         # send to the only nearby device
+omdrop send ~/photo.jpg MyMac                   # send to the device named "MyMac"
+omdrop send --to 6c:58:23 ~/photo.jpg           # --to specify any part of an address, or a name
+omdrop send --wait 120 ~/photo.jpg iPhone       # keep trying to send to iPhone for two minutes
 omdrop send --verbose ~/photo.jpg               # the protocol log, for a bug report
 ```
 

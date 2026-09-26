@@ -30,6 +30,53 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // One of the Everyone / Contacts Only tabs. The chosen one is lit; the
+  // other stays dark until hovered, when it brightens to say it can be clicked.
+  component AudienceTab: Item {
+    id: tab
+    property string glyph
+    property string label
+    property bool selected
+    signal chosen()
+
+    implicitWidth: tabRow.implicitWidth
+    implicitHeight: tabRow.implicitHeight
+
+    readonly property bool hovered: tabMouse.containsMouse && !selected
+    readonly property color tint: selected ? root.foreground
+                                  : hovered ? Qt.darker(root.foreground, 1.4)
+                                  : Qt.darker(root.foreground, 2.0)
+
+    Row {
+      id: tabRow
+      spacing: Style.space(6)
+      Text {
+        text: tab.glyph
+        color: tab.tint
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        anchors.verticalCenter: parent.verticalCenter
+      }
+      Text {
+        text: tab.label
+        color: tab.tint
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        font.letterSpacing: 1.2
+        anchors.verticalCenter: parent.verticalCenter
+      }
+    }
+
+    MouseArea {
+      id: tabMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: tab.selected ? Qt.ArrowCursor : Qt.PointingHandCursor
+      onClicked: tab.chosen()
+    }
+  }
+
   // Shipped beside this file so the widget works without anything on PATH.
   readonly property string cli: Qt.resolvedUrl("bin/omdrop").toString().replace("file://", "")
 
@@ -45,6 +92,10 @@ Panel {
   property string deviceName: ""
   property string downloadDir: ""
   property string blockedReason: ""
+  // Who may send: "everyone" or "contacts" (the saved `omdrop visibility`),
+  // and how many people the Contacts Only allow-list holds.
+  property string audience: "everyone"
+  property int senders: 0
 
   property string lastError: ""
 
@@ -210,11 +261,20 @@ Panel {
   }
 
 
-  // One sentence, naming what they will see and roughly when.
+  // One sentence, naming what they will see and roughly when. In Contacts Only
+  // it names who, because "nearby Apple devices" would overstate it.
   readonly property string visibleText: {
     var who = deviceName !== "" ? "\"" + deviceName + "\"" : "this computer"
+    if (audience === "contacts") {
+      if (senders === 0) return "Your known-senders list is empty, so everyone is refused. "
+                              + "Add people with: omdrop senders add EMAIL"
+      return "Only your " + senders + (senders === 1 ? " known sender" : " known senders")
+             + " should see " + who + " in AirDrop, after 10 seconds."
+    }
     return "Nearby Apple devices should see " + who + " in AirDrop, after 10 seconds."
   }
+  // An empty allow-list is a window nobody can use, so it reads as a fault.
+  readonly property bool detailUrgent: detailText === visibleText && audience === "contacts" && senders === 0
 
   readonly property string detailText: {
     if (!usable) return doctorText !== "" ? doctorText
@@ -504,6 +564,17 @@ Panel {
     soundProc.running = true
   }
 
+  // Saved, not per-window: the receiver reads it on every request, and the CLI
+  // restarts a running receiver so the change takes effect now. The tab flips
+  // straight away; the poll after the CLI exits is what confirms it.
+  Process { id: audienceProc; onExited: root.refreshStatus() }
+  function setAudience(mode) {
+    if (mode === audience || audienceProc.running) return
+    audience = mode
+    audienceProc.command = [root.cli, "visibility", mode]
+    audienceProc.running = true
+  }
+
   // ---------------------------------------------------------------- sending
   //
   // One send at a time, owned by the panel so it survives the popup closing
@@ -701,6 +772,8 @@ Panel {
       blockedReason = s.reason || ""
       syncWindowToRunning(s.mode || "off")
       if (!soundProc.running) soundOn = s.sound !== false
+      if (!audienceProc.running) audience = s.visibility === "contacts" ? "contacts" : "everyone"
+      senders = s.senders || 0
       if (!nameField.activeFocus) nameField.text = deviceName
       // Asked once per transition into unusable, not on every poll.
       if (!usable && doctorText === "" && !doctorProc.running) doctorProc.running = true
@@ -874,7 +947,7 @@ Panel {
           width: parent.width
           visible: text !== ""
           text: root.detailText
-          color: Qt.darker(root.foreground, 1.5)
+          color: root.detailUrgent ? root.urgent : Qt.darker(root.foreground, 1.5)
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.WordWrap
@@ -947,6 +1020,31 @@ Panel {
               root.windowPicking = false
               root.rescheduleWindow()
             }
+          }
+        }
+
+        // Who may send. Shown while Omdrop is off too, so the choice can be
+        // made before a window opens rather than a few seconds into one. It is
+        // saved, and applies to every window until changed.
+        PanelSeparator { visible: root.usable; foreground: root.foreground }
+
+        Row {
+          visible: root.usable
+          spacing: Style.space(22)
+
+          // nf-md-account_multiple (U+F000E) and nf-md-account_circle
+          // (U+F0009), written as surrogate pairs.
+          AudienceTab {
+            glyph: "\uDB80\uDC0E"
+            label: "EVERYONE"
+            selected: root.audience === "everyone"
+            onChosen: root.setAudience("everyone")
+          }
+          AudienceTab {
+            glyph: "\uDB80\uDC09"
+            label: "CONTACTS ONLY"
+            selected: root.audience === "contacts"
+            onChosen: root.setAudience("contacts")
           }
         }
 

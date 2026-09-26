@@ -54,7 +54,7 @@ PROJ="$(cd "$(dirname "$SELF")/.." && pwd)"
 # A fallback that silently substitutes for the real value is the same class of
 # defect as a status line reporting a state that was never entered, so this one
 # says when it is guessing, and says when the two disagree.
-VERSION_FALLBACK=0.9.2
+VERSION_FALLBACK=0.10.0
 omdrop_version() {
   local dir manifest version= real
   real=$(readlink -f "$0" 2>/dev/null) || real="$0"
@@ -1024,6 +1024,7 @@ cmd_status() {
   if (( json )); then
     ON="$on" LEFT="$left" VIS="$vis" MODE="$mode" DIR="$(effective_dir)" \
     REASON="$reason" RXPROVEN="$rxproven" NAME="$(effective_name)" \
+    AUDIENCE="$(cmd_visibility)" SENDERS="$(sender_count)" \
     SOUND="$(sound_on && echo 1)" python3 -c '
 import json, os
 left, vis = os.environ["LEFT"], os.environ["VIS"]
@@ -1039,6 +1040,10 @@ print(json.dumps({
     "reason": os.environ["REASON"] or None,
     "rx_proven": os.environ["RXPROVEN"] == "1",
     "sound": os.environ["SOUND"] == "1",
+    # Who may send: "everyone" or "contacts", with the allow-list size so the
+    # panel can warn that an empty list refuses everybody.
+    "visibility": os.environ["AUDIENCE"],
+    "senders": int(os.environ["SENDERS"]),
 }))'
     return
   fi

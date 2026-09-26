@@ -85,6 +85,8 @@ omdrop visibility contacts
 omdrop visibility everyone          # back to the default
 ```
 
+The panel shows the same choice as **Everyone** and **Contacts Only** tabs under the timer. You can set it while Omdrop is off, and it is saved, so it applies every time you turn Omdrop on.
+
 A sender is accepted only if Apple's signature on their identity record is valid, the record matches the certificate on the connection, and one of its identifiers is on your list. Anyone else is refused before any file data is read. An empty list refuses everyone.
 
 Senders not on your list also don't see you in their share sheet. This hiding is best-effort. Identity isn't bound to the connection at discovery, so someone replaying a known contact's record can see you, but still can't send. A device that sends no verifiable identity is shown, and is refused when it tries to send.

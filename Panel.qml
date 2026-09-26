@@ -481,15 +481,19 @@ Panel {
     peers = out
   }
 
-  function learnNames(list) {
-    var known = Object.assign({}, peerNames)
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i]
-      if (p.name) known[p.mac] = p.name
+  // One peer's answer, as the lookup reports it. The lookup streams a line
+  // per peer the moment it answers, so a name appears seconds after it
+  // arrives rather than when the slowest peer gives up half a minute later,
+  // and closing the panel mid-lookup keeps every name already reported.
+  function learnName(p) {
+    if (!p || !p.mac || !p.name) return
+    if (peerNames[p.mac] !== p.name) {
+      var known = Object.assign({}, peerNames)
+      known[p.mac] = p.name
+      peerNames = known
+      mergePeers(peers)
     }
-    peerNames = known
     namesResolved = true
-    mergePeers(peers)
   }
 
   // A row flashes once, the first time its device appears in the list. A
@@ -531,18 +535,22 @@ Panel {
 
   Process {
     id: namesProc
-    command: [root.cli, "peers", "--json", "-n"]
+    command: [root.cli, "peers", "--json", "-n", "--stream"]
     property double startedAt: 0
     onStarted: startedAt = Date.now()
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try { root.learnNames(JSON.parse(text)) } catch (e) {}
+    stdout: SplitParser {
+      onRead: function(line) {
+        try { root.learnName(JSON.parse(line)) } catch (e) {}
       }
     }
     // A lookup that fails at once (no sender, the radio just went) would
     // otherwise restart in a tight loop, so a quick exit waits before the next.
-    onExited: namesAgain.interval = Date.now() - startedAt < 5000 ? 10000 : 250
+    // A lookup that ran to its end has answered, names or not, so the
+    // "resolving" line goes.
+    onExited: {
+      namesAgain.interval = Date.now() - startedAt < 5000 ? 10000 : 250
+      if (Date.now() - startedAt >= 5000) root.namesResolved = true
+    }
   }
 
   Timer {

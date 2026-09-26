@@ -54,7 +54,7 @@ PROJ="$(cd "$(dirname "$SELF")/.." && pwd)"
 # A fallback that silently substitutes for the real value is the same class of
 # defect as a status line reporting a state that was never entered, so this one
 # says when it is guessing, and says when the two disagree.
-VERSION_FALLBACK=0.10.2
+VERSION_FALLBACK=0.11.0
 omdrop_version() {
   local dir manifest version= real
   real=$(readlink -f "$0" 2>/dev/null) || real="$0"
@@ -722,11 +722,11 @@ DRIVER_PKG=brcmfmac-awdl-dkms
 # checkout below is detached at this SHA and the build only runs if it
 # succeeded. Bump it, in the same commit, whenever the plugin needs a newer
 # driver: the full 40 characters, because a short SHA is not a pin.
-DRIVER_COMMIT=d315689b2ce936bd1dc71a5d2c275f558f68006d
+DRIVER_COMMIT=f5d1ae2599da0c5cb7932e3577bcdf9e87068149
 # The package version that commit builds. install-driver rebuilds any older
 # installed driver: a fix inside the helper, such as 0.5.1's, changes nothing
 # a feature probe could see.
-DRIVER_VERSION=0.6.2
+DRIVER_VERSION=0.6.3
 
 cmd_install_driver() {
   local self_q
@@ -785,7 +785,7 @@ else
   git clone --quiet $DRIVER_REPO '$src'
 fi
 echo 'Building driver commit $DRIVER_COMMIT'
-git -C '$src' checkout --detach d315689b2ce936bd1dc71a5d2c275f558f68006d && makepkg --dir '$src' -si"
+git -C '$src' checkout --detach f5d1ae2599da0c5cb7932e3577bcdf9e87068149 && makepkg --dir '$src' -si"
     fi
   fi
 
@@ -1463,15 +1463,18 @@ cmd_peers() {
   # AirDrop server shut until it recognizes one -- without it, names resolve
   # only from devices something else has woken. --no-wake asks for the lookup
   # without that broadcast.
-  local names=() wake=() json=0
+  local names=() wake=() json=0 stream=0
   while (( $# )); do
     case "$1" in
       -n|--names) names=(--names); shift ;;
       --no-wake) wake=(--no-wake); shift ;;
       --json) json=1; shift ;;
-      *) die "usage: omdrop peers [-n|--names] [--no-wake] [--json]" ;;
+      --stream) stream=1; shift ;;
+      *) die "usage: omdrop peers [-n|--names] [--no-wake] [--json] [--stream]" ;;
     esac
   done
+  (( ! stream )) || { (( json )) && (( ${#names[@]} )); } \
+    || die "omdrop peers: --stream is for the panel and needs --json -n"
   require_sender
   # The driver package owns the sender, and the two are versioned independently, so
   # a plugin newer than the installed driver would otherwise hand a flag to a
@@ -1479,6 +1482,18 @@ cmd_peers() {
   # is actually wrong instead.
   if (( ${#names[@]} )) && ! "$SENDER" --help 2>&1 | grep -q -- '--names'; then
     die "Looking up peer names needs a newer Wi-Fi driver package. Update it with: omdrop install-driver"
+  fi
+  # --stream: one JSON object per peer on its own line, written the moment
+  # that peer answers, so the panel shows a name seconds after it arrives
+  # rather than when the whole lookup ends. The lookup still runs as its own
+  # process group, so stopping this command stops the sender and its advert.
+  # A driver too old for --stream gives the same lines, all at the end.
+  if (( stream )); then
+    local sflag=()
+    "$SENDER" --help 2>&1 | grep -q -- '--stream' && sflag=(--stream)
+    peers_stream() { "$SENDER" --list "${names[@]}" "${wake[@]}" "${sflag[@]}" | peers_json --lines; }
+    run_cancellable peers_stream
+    return
   fi
   # An empty peer table has two causes and the sender cannot tell them apart:
   # no window is open, or a window is open and no device has been found. Only
@@ -1543,18 +1558,25 @@ peers_json() {
   python3 -c '
 import json, re, sys
 row = re.compile(r"^((?:[0-9a-f]{2}:){5}[0-9a-f]{2})\s+(-?\d+|\?) dBm\s+\S+\s*(.*)$")
+lines = sys.argv[1:] == ["--lines"]
 peers = []
-for line in sys.stdin:
+# readline, not iteration: each line is passed on as soon as it arrives.
+for line in iter(sys.stdin.readline, ""):
     m = row.match(line.rstrip("\n"))
     if not m:
         continue
     name = m.group(3).strip()
-    peers.append({
+    peer = {
         "mac": m.group(1),
         "rssi": None if m.group(2) == "?" else int(m.group(2)),
         "name": None if name in ("", "(no response)", "(anonymous)") else name,
-    })
-print(json.dumps(peers))'
+    }
+    if lines:
+        print(json.dumps(peer), flush=True)
+    else:
+        peers.append(peer)
+if not lines:
+    print(json.dumps(peers))' "$@"
 }
 
 # The unit is hardened with ProtectHome=read-only, so the download folder has

@@ -25,6 +25,16 @@ On first use, the panel opens a terminal that asks for your password to:
 
 The first time you turn Omdrop on, it finishes setting up and installs the `omdrop` command at `~/.local/bin/omdrop`. To get the command before that, run `~/.config/omarchy/plugins/netmojo.omdrop/bin/omdrop setup`. Run `omdrop --version` to include the version in bug reports.
 
+## Upgrade
+
+```bash
+omarchy plugin update netmojo.omdrop   # fetch the latest release
+omarchy-restart-shell                  # the bar loads the new panel only after a shell restart
+omdrop install-driver                  # rebuild the driver if the new release needs a newer one
+```
+
+`omdrop install-driver` does nothing when the installed driver is already current. If Omdrop is on while you upgrade, turn it off and on again: the receiver keeps running the old version until it restarts.
+
 ## Receive files
 
 Click the icon to open the panel:

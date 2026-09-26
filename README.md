@@ -23,7 +23,7 @@ On first use, the panel opens a terminal that asks for your password to:
 - Build and install the driver, pinned to an exact commit, and install `python-libarchive-c` from the official Arch repositories if it is missing. It is the receiver's only library outside Python's standard library.
 - Add one firewall rule: TCP 8771 on `awdl0`, from IPv6 link-local addresses only.
 
-First use also installs the `omdrop` command at `~/.local/bin/omdrop`. To get it straight away, run `omdrop setup`. Run `omdrop --version` to include the version in bug reports.
+The first time you turn Omdrop on, it finishes setting up and installs the `omdrop` command at `~/.local/bin/omdrop`. To get the command before that, run `~/.config/omarchy/plugins/netmojo.omdrop/bin/omdrop setup`. Run `omdrop --version` to include the version in bug reports.
 
 ## Receive files
 

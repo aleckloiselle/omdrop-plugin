@@ -54,7 +54,7 @@ PROJ="$(cd "$(dirname "$SELF")/.." && pwd)"
 # A fallback that silently substitutes for the real value is the same class of
 # defect as a status line reporting a state that was never entered, so this one
 # says when it is guessing, and says when the two disagree.
-VERSION_FALLBACK=0.10.0
+VERSION_FALLBACK=0.10.1
 omdrop_version() {
   local dir manifest version= real
   real=$(readlink -f "$0" 2>/dev/null) || real="$0"
@@ -208,8 +208,14 @@ have_unit() {
   systemctl --user cat "$UNIT" >/dev/null 2>&1
 }
 
+# First use installs what `setup` would. The panel's switch is the first thing
+# most people press, and telling them to "Run: omdrop setup" named a command
+# that only `setup` itself puts on PATH, so on a fresh install it was not found
+# (issue 12).
 require_unit() {
-  have_unit || die "The service that receives files is not installed yet. Run: omdrop setup"
+  have_unit && return 0
+  setup_install || true
+  have_unit || die "The service that receives files could not be installed. The reason is above."
 }
 
 receiving() {
@@ -516,7 +522,10 @@ unit_install() {
   return "$changed"
 }
 
-cmd_setup() {
+# Everything `setup` installs, each step idempotent. Returns 0 when it changed
+# something, 1 when everything was already in place. Shared with require_unit,
+# so the first `omdrop on` sets up a fresh install without being asked.
+setup_install() {
   local plugin did=0
 
   plugin=$(plugin_dir) \
@@ -575,7 +584,11 @@ cmd_setup() {
     esac
   fi
 
-  (( did )) || echo "Everything omdrop sets up for you was already in place."
+  (( did ))
+}
+
+cmd_setup() {
+  setup_install || echo "Everything omdrop sets up for you was already in place."
 
   local missing=()
   readarray -t missing < <(prereqs_missing)
@@ -623,7 +636,7 @@ prereqs_missing() {
   elif [[ ! -e /sys/class/net/awdl0 ]]; then
     printf 'radio\t%s\n' "The driver is installed but its Apple-compatible radio is not running yet, so nobody can see this computer. Restarting usually brings it up."
   fi
-  have_unit || printf 'service\t%s\n' "The service that receives files is not installed yet. Run: omdrop setup"
+  have_unit || printf 'service\t%s\n' "The service that receives files is not installed yet. Turning Omdrop on installs it."
 }
 
 # `doctor` is the panel's version of the same answer. --json so the widget can
@@ -709,7 +722,7 @@ DRIVER_PKG=brcmfmac-awdl-dkms
 # checkout below is detached at this SHA and the build only runs if it
 # succeeded. Bump it, in the same commit, whenever the plugin needs a newer
 # driver: the full 40 characters, because a short SHA is not a pin.
-DRIVER_COMMIT=a24e502561d73fc96619f7594543fd061f77e056
+DRIVER_COMMIT=d315689b2ce936bd1dc71a5d2c275f558f68006d
 # The package version that commit builds. install-driver rebuilds any older
 # installed driver: a fix inside the helper, such as 0.5.1's, changes nothing
 # a feature probe could see.
@@ -772,7 +785,7 @@ else
   git clone --quiet $DRIVER_REPO '$src'
 fi
 echo 'Building driver commit $DRIVER_COMMIT'
-git -C '$src' checkout --detach a24e502561d73fc96619f7594543fd061f77e056 && makepkg --dir '$src' -si"
+git -C '$src' checkout --detach d315689b2ce936bd1dc71a5d2c275f558f68006d && makepkg --dir '$src' -si"
     fi
   fi
 

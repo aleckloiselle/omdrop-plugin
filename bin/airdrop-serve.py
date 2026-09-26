@@ -261,6 +261,9 @@ class ReceiveBudget:
                 f'not enough free space while preserving {MIN_FREE_BYTES} bytes')
 
 
+class ReadRateTimeout(socket.timeout):
+    """The body is still arriving, but slower than the minimum read rate."""
+
 
 class ReadDeadline:
     """Require sustained progress as well as an idle-socket timeout."""
@@ -274,7 +277,22 @@ class ReadDeadline:
         allowed = INITIAL_READ_SECONDS + (
             self.transferred / MIN_READ_BYTES_PER_SECOND)
         if time.monotonic() > self.started + allowed:
-            raise socket.timeout('request body did not meet minimum read rate')
+            raise ReadRateTimeout('request body did not meet minimum read rate')
+
+    def stall_report(self, error, expected):
+        """How far a timed-out body got, so a stall reads plainly in the log.
+
+        A stopped transfer and a slow one call for different fixes: a radio
+        that stopped carrying the upload (issue 13) is not helped by a longer
+        timeout, and the byte count and elapsed time are what tell them apart.
+        """
+        why = (f'slower than {MIN_READ_BYTES_PER_SECOND} bytes/s'
+               if isinstance(error, ReadRateTimeout)
+               else f'nothing arrived for {READ_IDLE_TIMEOUT_SECONDS} s')
+        of = f' of {expected}' if expected is not None else ''
+        return (f'request body read timed out, {why}: {self.transferred}{of} '
+                f'bytes in {time.monotonic() - self.started:.1f} s')
+
 
 class LimitedWriter:
     """Count writes, enforce a byte ceiling, and preserve free disk space."""
@@ -338,9 +356,13 @@ def body_plan(headers, limit):
 
 
 def _copy_exact(source, writer, size, truncated, deadline):
+    # read1 hands back whatever has arrived rather than waiting for a full
+    # chunk, so a stalled body is counted to the byte instead of to the last
+    # complete 64 KiB it managed.
+    read = getattr(source, 'read1', source.read)
     left = size
     while left:
-        data = source.read(min(left, IO_CHUNK_BYTES))
+        data = read(min(left, IO_CHUNK_BYTES))
         if not data:
             raise RequestBodyError(truncated)
         deadline.note(len(data))
@@ -815,6 +837,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reject(503, 'too many uploads in progress')
             return
         tid = safe_name(self.headers.get('TransferID', ''), 'upload')
+        deadline = ReadDeadline()
+        plan = None
         try:
             receive_budget = ReceiveBudget(DEST, MAX_RECEIVE_PERCENT)
             plan = body_plan(self.headers, receive_budget.byte_limit)
@@ -828,14 +852,16 @@ class Handler(BaseHTTPRequestHandler):
             with tempfile.TemporaryFile(dir=DEST) as raw:
                 wire_bytes = read_request_body(
                     self.rfile, self.headers, raw, receive_budget.byte_limit,
-                    check_disk=True, plan=plan)
+                    check_disk=True, plan=plan, deadline=deadline)
                 raw.seek(0)
                 logging.info('upload %s: %d bytes dvzip (TotalBytes %s)',
                              tid, wire_bytes, self.headers.get('TotalBytes'))
                 written = store_upload(raw, DEST, tid, receive_budget)
             logging.info('upload %s: stored %s', tid, ', '.join(written))
-        except socket.timeout:
-            self.reject(408, 'request body read timed out')
+        except socket.timeout as e:
+            # Chunked framing announces no length, so there is none to name.
+            expected = plan[1] if plan else None
+            self.reject(408, f'upload {tid}: {deadline.stall_report(e, expected)}')
             return
         except (BodyTooLarge, UploadLimitError) as e:
             self.reject(413, str(e))

@@ -525,6 +525,66 @@ Panel {
     }
   }
 
+  // ------------------------------------------------------------ known senders
+  //
+  // The Contacts Only allow-list, edited through `omdrop senders`. The
+  // receiver rereads the file on every request, so a change applies to the
+  // next transfer with no restart.
+  property bool sendersOpen: false
+  property var senderList: []      // identifiers exactly as stored
+  property string senderError: ""
+
+  Process {
+    id: sendersListProc
+    command: [root.cli, "senders", "list", "--json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try { root.senderList = JSON.parse(text) } catch (e) {}
+      }
+    }
+  }
+  function refreshSenders() {
+    if (!sendersListProc.running) sendersListProc.running = true
+  }
+  function toggleSenders() {
+    sendersOpen = !sendersOpen
+    senderError = ""
+    if (sendersOpen) refreshSenders()
+  }
+
+  // The CLI validates, so the panel shows its sentence rather than keeping a
+  // second copy of the rules.
+  Process {
+    id: sendersEditProc
+    property bool clearField: false
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.senderError = text.trim().replace(/^omdrop: /, "")
+    }
+    onExited: function(code) {
+      if (code === 0) {
+        root.senderError = ""
+        if (clearField) senderField.text = ""
+      }
+      root.refreshSenders()
+      root.refreshStatus()
+    }
+  }
+  function addSender(id) {
+    id = id.trim()
+    if (id === "" || sendersEditProc.running) return
+    sendersEditProc.clearField = true
+    sendersEditProc.command = [root.cli, "senders", "add", id]
+    sendersEditProc.running = true
+  }
+  function removeSender(id) {
+    if (sendersEditProc.running) return
+    sendersEditProc.clearField = false
+    sendersEditProc.command = [root.cli, "senders", "remove", id]
+    sendersEditProc.running = true
+  }
+
   Timer {
     interval: 2000
     repeat: true
@@ -1036,23 +1096,171 @@ Panel {
         // saved, and applies to every window until changed.
         PanelSeparator { visible: root.usable; foreground: root.foreground }
 
-        Row {
+        Item {
           visible: root.usable
-          spacing: Style.space(22)
+          width: parent.width
+          implicitHeight: Math.max(audienceTabs.implicitHeight, sendersButton.implicitHeight)
 
-          // nf-md-account_multiple (U+F000E) and nf-md-account_circle
-          // (U+F0009), written as surrogate pairs.
-          AudienceTab {
-            glyph: "\uDB80\uDC0E"
-            label: "EVERYONE"
-            selected: root.audience === "everyone"
-            onChosen: root.setAudience("everyone")
+          Row {
+            id: audienceTabs
+            spacing: Style.space(22)
+            anchors.verticalCenter: parent.verticalCenter
+
+            // nf-md-account_multiple (U+F000E) and nf-md-account_circle
+            // (U+F0009), written as surrogate pairs.
+            AudienceTab {
+              glyph: "\uDB80\uDC0E"
+              label: "EVERYONE"
+              selected: root.audience === "everyone"
+              onChosen: root.setAudience("everyone")
+            }
+            AudienceTab {
+              glyph: "\uDB80\uDC09"
+              label: "CONTACTS ONLY"
+              selected: root.audience === "contacts"
+              onChosen: root.setAudience("contacts")
+            }
           }
-          AudienceTab {
-            glyph: "\uDB80\uDC09"
-            label: "CONTACTS ONLY"
-            selected: root.audience === "contacts"
-            onChosen: root.setAudience("contacts")
+
+          // Opens the known-senders list. The count sits beside the icon in
+          // the same dark colour, and is left out while the list is empty.
+          Item {
+            id: sendersButton
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            implicitWidth: sendersRow.implicitWidth
+            implicitHeight: sendersRow.implicitHeight + Style.space(4)
+            width: implicitWidth
+            height: implicitHeight
+            readonly property color tint: root.sendersOpen || sendersMouse.containsMouse
+                                          ? root.foreground : Qt.darker(root.foreground, 2.0)
+
+            Row {
+              id: sendersRow
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(3)
+              Text {
+                // nf-md-account_multiple_plus (U+F0010)
+                text: "\uDB80\uDC10"
+                color: sendersButton.tint
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Text {
+                visible: root.senders > 0
+                text: root.senders
+                color: sendersButton.tint
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+
+            MouseArea {
+              id: sendersMouse
+              anchors.fill: parent
+              anchors.margins: -Style.space(4)
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.toggleSenders()
+            }
+
+            PanelToolTip {
+              visible: sendersMouse.containsMouse
+              text: "Known senders, for Contacts Only"
+              fontFamily: root.fontFamily
+            }
+          }
+        }
+
+        // The known-senders list, opened from the button above.
+        Column {
+          visible: root.usable && root.sendersOpen
+          width: parent.width
+          spacing: Style.space(2)
+
+          Repeater {
+            model: root.senderList
+            delegate: Item {
+              id: senderRow
+              required property string modelData
+              width: parent.width
+              implicitHeight: senderText.implicitHeight + Style.space(10)
+
+              Rectangle {
+                anchors.fill: parent
+                visible: senderMouse.containsMouse
+                color: Style.hoverFillFor(root.foreground, Color.accent)
+              }
+              Text {
+                id: senderText
+                anchors.left: parent.left
+                anchors.leftMargin: Style.space(10)
+                anchors.right: removeGlyph.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: senderRow.modelData
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+              Text {
+                id: removeGlyph
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(10)
+                anchors.verticalCenter: parent.verticalCenter
+                text: "×"
+                color: senderMouse.containsMouse ? root.foreground : root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+              MouseArea {
+                id: senderMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.removeSender(senderRow.modelData)
+              }
+              PanelToolTip {
+                visible: senderMouse.containsMouse
+                text: "Remove " + senderRow.modelData
+                fontFamily: root.fontFamily
+              }
+            }
+          }
+
+          TextField {
+            id: senderField
+            width: parent.width
+            foreground: root.foreground
+            placeholderText: "Apple ID email or phone number"
+            onTextEdited: root.senderError = ""
+            onAccepted: root.addSender(text)
+          }
+
+          Text {
+            width: parent.width
+            visible: root.senderError !== ""
+            text: root.senderError
+            color: root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+            topPadding: Style.space(4)
+          }
+
+          Text {
+            width: parent.width
+            visible: root.senderList.length === 0 && root.senderError === ""
+            text: "In Contacts Only, only these people can send to you. Use the email or phone number of their Apple ID."
+            color: Qt.darker(root.foreground, 1.5)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+            topPadding: Style.space(4)
           }
         }
 

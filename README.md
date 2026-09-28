@@ -59,7 +59,7 @@ Expand **Send to peers**, or press `n` in the panel. If Omdrop is off, this turn
 
 While the section is open, Omdrop keeps asking devices for their names. Asking connects to each device and briefly announces your Apple ID over Bluetooth, so that Contacts Only devices answer. Closing the section stops it.
 
-The recipient sees a prompt naming this computer, just as they would for an Apple device. A Mac answers right away. An iPhone listens only in short bursts, so Omdrop keeps trying for 30 seconds. Opening a share sheet on the phone wakes it. Sending to a Contacts Only device needs an Apple-issued identity on this machine; without one, set the recipient to **Everyone**.
+The recipient sees a prompt naming this computer, just as they would for an Apple device. A Mac answers right away. An iPhone listens only in short bursts, so Omdrop keeps trying for 30 seconds and, while it waits, announces this computer over Bluetooth to wake the phone's AirDrop receiver. If the phone still doesn't answer, opening a share sheet on it wakes it. Sending to a Contacts Only device needs an Apple-issued identity on this machine; without one, set the recipient to **Everyone**.
 
 ## Command line
 

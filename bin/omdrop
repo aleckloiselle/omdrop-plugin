@@ -54,7 +54,7 @@ PROJ="$(cd "$(dirname "$SELF")/.." && pwd)"
 # A fallback that silently substitutes for the real value is the same class of
 # defect as a status line reporting a state that was never entered, so this one
 # says when it is guessing, and says when the two disagree.
-VERSION_FALLBACK=0.12.1
+VERSION_FALLBACK=0.12.2
 omdrop_version() {
   local dir manifest version= real
   real=$(readlink -f "$0" 2>/dev/null) || real="$0"
@@ -163,7 +163,8 @@ omdrop -- send and receive files with nearby Apple devices
                     that is what hears the devices around you. --to ADDRESS
                     chooses one when several are heard, and --wait SECONDS
                     keeps trying for that long while an iPhone's receiver
-                    is asleep (default 30). --pick asks for the files in a
+                    is asleep (default 30), announcing this machine over
+                    Bluetooth to wake it. --pick asks for the files in a
                     chooser instead.
   peers [-n]        the Apple devices nearby right now. -n also asks
                     each one for its name, which means connecting to it and
@@ -722,12 +723,12 @@ DRIVER_PKG=brcmfmac-awdl-dkms
 # checkout below is detached at this SHA and the build only runs if it
 # succeeded. Bump it, in the same commit, whenever the plugin needs a newer
 # driver: the full 40 characters, because a short SHA is not a pin.
-DRIVER_COMMIT=10de27cfee72a1c0d71178235d9b9ee463f58370
+DRIVER_COMMIT=70a43051aad928ec44bda73ac6e850c078b0be79
 # The package version that commit builds, with its pkgrel. install-driver
 # rebuilds any older installed driver: a fix inside the helper, such as 0.5.1's,
 # changes nothing a feature probe could see, and a packaging fix such as
 # 0.6.3-2's (the kernel headers became a dependency) changes only the pkgrel.
-DRIVER_VERSION=0.6.3-2
+DRIVER_VERSION=0.6.4
 
 cmd_install_driver() {
   local self_q
@@ -786,7 +787,7 @@ else
   git clone --quiet $DRIVER_REPO '$src'
 fi
 echo 'Building driver commit $DRIVER_COMMIT'
-git -C '$src' checkout --detach 10de27cfee72a1c0d71178235d9b9ee463f58370 && makepkg --dir '$src' -si"
+git -C '$src' checkout --detach 70a43051aad928ec44bda73ac6e850c078b0be79 && makepkg --dir '$src' -si"
     fi
   fi
 

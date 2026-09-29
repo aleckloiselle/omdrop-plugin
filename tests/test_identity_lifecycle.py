@@ -52,8 +52,8 @@ STUB_OP = textwrap.dedent('''\
         print(json.dumps({'id': 'item1', 'vault': {'id': 'vault1'}}))
     elif args[:2] == ['item', 'get']:
         print(json.dumps({'id': args[2], 'vault': {'id': 'vault1'}}))
-    elif args[0] == 'whoami':
-        print(json.dumps({'account_uuid': 'acct1'}))
+    elif args[:2] == ['account', 'list']:
+        print(json.dumps([{'account_uuid': 'acct1', 'email': 'x', 'url': 'y', 'user_uuid': 'u'}]))
     ''')
 
 

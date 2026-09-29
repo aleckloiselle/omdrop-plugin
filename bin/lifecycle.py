@@ -391,8 +391,16 @@ def op_json(user, args, deadline):
 
 
 def account_id(user, deadline):
-    who = op_json(user, ['whoami'], deadline)
-    return who.get('account_uuid') or who.get('account_id') or ''
+    """The 1Password account to pin, when the app has exactly one.
+
+    Not `op whoami`: with the desktop app integration it reports only an
+    existing sign-in and never asks for one, so it fails in a fresh process
+    even right after the user approved a prompt.
+    """
+    accounts = json.loads(op_run(user, ['account', 'list', '--format', 'json'], deadline) or b'[]')
+    if len(accounts) == 1:
+        return accounts[0].get('account_uuid', '')
+    return ''                  # several accounts: op's own default decides
 
 
 def adopt(user, account, vault, item):
@@ -447,6 +455,15 @@ def cmd_import(args, user):
                 warn('1Password did not report the new item; nothing was deleted.')
                 return 1
             account = account_id(user, deadline)
+            # Saved straight away, with the mode unchanged: if anything below
+            # fails, a rerun finds this item instead of creating another.
+            try:
+                setting_set(user, identity_op_account=account, identity_op_vault=vault,
+                            identity_op_item=item)
+            except OSError as e:
+                warn(f'Could not save the settings ({e}). The item is {item}; '
+                     f'run: omdrop identity 1password use {item}')
+                return 1
             stored = op_read_files(user, account, vault, item, deadline)
             if stored != present:
                 warn(f'The 1Password item {item} does not match the files; nothing was deleted.')
@@ -454,8 +471,8 @@ def cmd_import(args, user):
             try:
                 adopt(user, account, vault, item)
             except OSError as e:
-                warn(f'Could not save the settings ({e}). The item is {item}; '
-                     f'run: omdrop identity 1password use {item}')
+                warn(f'Could not save the settings ({e}); nothing was deleted. '
+                     'Run the import again to finish.')
                 return 1
     except FetchFailed as e:
         warn(f'{e}; nothing was deleted.')

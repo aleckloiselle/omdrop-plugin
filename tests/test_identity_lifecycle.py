@@ -357,7 +357,10 @@ class ImportTests(LifecycleFixture):
         with unittest.mock.patch.object(lifecycle, 'setting_set', crash_on_mode):
             rc, _, err = self.run_cmd('import')
         self.assertEqual(rc, 1)
-        self.assertIn('item1', err)
+        self.assertIn('Run the import again', err)
+        # The item's IDs are already saved, so the rerun reuses it.
+        self.assertEqual(ident.parse_settings((self.config / 'omdrop' / 'settings').read_text())
+                         .get('identity_op_item'), 'item1')
         s = ident.parse_settings((self.config / 'omdrop' / 'settings').read_text())
         self.assertNotEqual(s.get('identity_source'), '1password')
         self.assertTrue((self.keys / 'key.pem').exists())

@@ -136,7 +136,8 @@ WATCH=omdrop-watch
 # The identity commands, and the timer that turns a window off at the 1Password
 # cache's hard expiry: a kernel timeout clears the cache, but only stopping the
 # receiver clears the copy it loaded. See docs/identity-contract.md.
-ID_PY="$PROJ/bin/identity.py"
+identity_py() { python3 "$PROJ/bin/identity.py" "$@"; }
+ID_PY=identity_py
 ID_EXPIRY=omdrop-identity-expiry
 
 # omdrop's own settings live apart from the receiver's config.toml on purpose:
@@ -734,9 +735,16 @@ print(json.dumps({"ready": not rows,
   if (( ${#missing[@]} )); then
     printf 'Not ready to receive yet:\n'
     printf -- '  - %s\n' "${missing[@]#*$'\t'}"
-    return 0
+  else
+    printf 'Ready to receive.\n'
   fi
-  printf 'Ready to receive.\n'
+  # Which identity Apple devices will see, and anything left behind. Reported,
+  # never repaired here: `omdrop off` is the one thing that clears a window.
+  printf '\n'
+  "$ID_PY" status 2>/dev/null || printf 'The identity could not be read.\n'
+  if [[ -e "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omdrop/window" ]] && ! receiving; then
+    printf 'A window'"'"'s identity file remains although nothing is receiving. Clear it with: omdrop off\n'
+  fi
 }
 
 # AirDrop data reaches the ordinary user receiver through one kernel socket.

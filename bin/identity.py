@@ -342,12 +342,22 @@ class Keyring:
 def cache_read(user=None):
     """The raw cache payload, or None.
 
+    A sandboxed service -- the receiver, with ProtectHome and friends -- runs
+    in its own user namespace, where `@u` names a different, empty user
+    keyring, but the key itself is still readable by serial. So when the
+    search finds nothing, try the `cache_serial` the window file records.
+
     As root for another user, read directly if the kernel allows it; if not,
     read from a child that has dropped to that user.
     """
     user = user or User()
     try:
-        data = Keyring().read()
+        keyring = Keyring()
+        data = keyring.read()
+        if data is None:
+            serial = parse_settings(_read(user.window) or '').get('cache_serial', '')
+            if serial.isdigit():
+                data = keyring.read(int(serial))
         if data is not None or not (user.root and user.uid != 0):
             return data
     except KeyringError:

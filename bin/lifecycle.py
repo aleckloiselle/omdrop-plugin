@@ -271,8 +271,11 @@ def cmd_window(args, user):
     if m == '1password':
         payload = current_cache(user)
         if usable_for_new_window(payload):
+            # cache_serial is for sandboxed readers such as the receiver,
+            # which cannot search the user keyring (see identity.cache_read).
             lines = ['source=1password', f"fetch_id={payload['fetch_id']}",
-                     f"hard_expiry={payload['hard_expiry']}"]
+                     f"hard_expiry={payload['hard_expiry']}",
+                     f"cache_serial={ident.Keyring().find()}"]
             ident.Keyring().set_timeout(payload['hard_expiry'] - now())
             say(source='1password', expiry_in=payload['hard_expiry'] - now())
     elif m == 'disk':

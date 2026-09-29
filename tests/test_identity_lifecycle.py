@@ -405,6 +405,22 @@ class ImportTests(LifecycleFixture):
         self.assertEqual(sum('item create' in c for c in self.op_calls()), creates)
         self.assertFalse((self.keys / 'key.pem').exists())
 
+    def test_a_window_opened_during_import_keeps_every_file(self):
+        real = lifecycle.op_read_files
+
+        def open_window_at_readback(*a, **kw):
+            files = real(*a, **kw)
+            ident._write_private(ident.User().window, 'source=disk\n')
+            return files
+        with unittest.mock.patch.object(lifecycle, 'op_read_files', open_window_at_readback):
+            rc, _, err = self.run_cmd('import')
+        self.assertEqual(rc, 1)
+        self.assertIn('Nothing was deleted', err)
+        self.assertEqual(sorted(p.name for p in self.keys.iterdir() if p.name in lifecycle.FILES),
+                         sorted(lifecycle.FILES))
+        s = ident.parse_settings((self.config / 'omdrop' / 'settings').read_text())
+        self.assertNotEqual(s.get('identity_source'), '1password')
+
     def test_leftovers_after_an_interrupted_delete_are_removed_by_a_rerun(self):
         self.assertEqual(self.run_cmd('import')[0], 0)
         (self.keys / 'certificate.pem').write_bytes(self.apple['certificate.pem'])

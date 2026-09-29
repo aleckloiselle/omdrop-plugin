@@ -995,6 +995,18 @@ cmd_on() {
 
   cancel_window
 
+  # The 1Password cache's hard expiry is absolute: a window still open then is
+  # turned off, because a kernel timeout cannot reach a key the receiver has
+  # already loaded. Armed before anything starts, and a window that cannot arm
+  # it does not start: a bound that is only advice is not a bound.
+  if [[ "$id_source" == 1password && -n "$id_expiry" ]]; then
+    if ! systemd-run --user --quiet --on-active="$(( id_expiry > 0 ? id_expiry : 1 ))s" \
+         --unit="$ID_EXPIRY" "$SELF" off; then
+      identity_abort
+      die "The AirDrop receiver would not start: the identity cache's expiry could not be armed."
+    fi
+  fi
+
   # The watcher goes up BEFORE the radio and it carries the shape of the
   # window in its arguments, because `status` reads the mode off this unit: a
   # start whose units are not up yet would otherwise read as "forever", and the
@@ -1116,13 +1128,6 @@ cmd_on() {
       [[ -x "$DISCOVERABLE" ]] && pkexec "$DISCOVERABLE" start "$secs" >/dev/null 2>&1 8>&- ;;
   esac
 
-  # The 1Password cache's hard expiry is absolute: a window still open then is
-  # turned off, because a kernel timeout cannot reach a key already loaded.
-  if [[ "$id_source" == 1password && -n "$id_expiry" ]]; then
-    systemd-run --user --quiet --on-active="$(( id_expiry > 0 ? id_expiry : 1 ))s" \
-      --unit="$ID_EXPIRY" "$SELF" off \
-      || identity_notice "Could not arm the identity cache's expiry; turn Omdrop off within $(( id_expiry / 3600 )) hours."
-  fi
   identity_unlock
 
   cmd_status

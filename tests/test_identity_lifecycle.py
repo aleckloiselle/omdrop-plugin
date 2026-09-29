@@ -494,6 +494,36 @@ class SelfSignedTests(unittest.TestCase):
             ident.create_self_signed(self.user, 'X')
         self.assertEqual(Path(self.user.path('key.self-signed.pem')).read_bytes(), b'mine')
 
+    def test_a_failed_second_link_leaves_no_half_pair_behind(self):
+        real_link, calls = os.link, []
+
+        def full_disk(src, dst):
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError(28, 'No space left on device')
+            real_link(src, dst)
+        with unittest.mock.patch.object(ident.os, 'link', full_disk):
+            with self.assertRaises(ident.IdentityError):
+                ident.create_self_signed(self.user, 'X')
+        self.assertEqual(ident.pair_state(self.user), {'certificate': False, 'key': False})
+        self.assertTrue(ident.create_self_signed(self.user, 'X'))   # and it can try again
+
+    @unittest.skipIf(os.geteuid() == 0, 'root reads a mode-0 file')
+    def test_an_unreadable_legacy_key_does_not_stop_the_self_signed_identity(self):
+        tmp = Path(self.tmp.name)
+        config, runtime = tmp / 'config', tmp / 'run'
+        (config / 'omdrop').mkdir(parents=True)
+        runtime.mkdir()
+        (config / 'omdrop' / 'settings').write_text('identity_source=self-signed\n')
+        ident.create_self_signed(self.user, 'X')
+        Path(self.user.path('key.pem')).write_bytes(b'legacy')
+        os.chmod(self.user.path('key.pem'), 0)
+        with unittest.mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': str(config),
+                                                   'XDG_RUNTIME_DIR': str(runtime)}):
+            user = ident.User(keys_dir=os.path.join(self.tmp.name, '.omdrop'))
+            chosen = ident.resolve(user)
+        self.assertEqual(chosen.kind, 'self-signed')
+
 
 class LegacyRenameTests(unittest.TestCase):
     def setUp(self):

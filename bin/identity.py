@@ -411,11 +411,30 @@ def read_window(user):
 
 
 def disk_state(user):
-    cert = _read(user.path('certificate.pem'), 'rb')
-    key = _read(user.path('key.pem'), 'rb')
-    return cert, key, {'certificate': cert is not None, 'key': key is not None,
+    """The on-disk Apple identity. An unreadable file counts as present but not
+    matching, so selection falls back or errors as it would for a mismatch."""
+    def read(name):
+        path = user.path(name)
+        try:
+            return _read(path, 'rb'), os.path.lexists(path)
+        except OSError:
+            return None, True
+    (cert, have_cert), (key, have_key) = read('certificate.pem'), read('key.pem')
+    return cert, key, {'certificate': have_cert, 'key': have_key,
                        'match': bool(cert and key and key_matches(cert, key)),
                        'record': os.path.exists(user.path('validation_record.cms'))}
+
+
+NO_DISK = {'certificate': False, 'key': False, 'match': False, 'record': False}
+
+
+def disk_in_play(settings, window):
+    """Whether selection can consult the disk identity at all."""
+    if isinstance(window, dict):
+        return window['source'] == 'disk'
+    if window is not None:
+        return False                      # unparseable: an error before disk
+    return settings.get('identity_source', 'disk') == 'disk'
 
 
 def pair_state(user):
@@ -444,7 +463,12 @@ def resolve(user=None, now=None, name=None, read_cache=None):
             raw = None
         if raw is not None:
             cache = parse_payload(raw) or 'malformed'
-    cert, key, disk = disk_state(user)
+    # The disk files are read only when selection can use them: an unrelated,
+    # unreadable legacy key must not stop a self-signed or cached identity.
+    if disk_in_play(settings, window):
+        cert, key, disk = disk_state(user)
+    else:
+        cert, key, disk = None, None, NO_DISK
     result = select(settings, window, cache, disk, pair_state(user), user.root, now)
     if 'error' in result:
         raise IdentityError(result['error'])
@@ -539,10 +563,18 @@ def create_self_signed(user, name):
                 for src, dst in (('key.pem', key_to), ('certificate.pem', cert_to)):
                     os.link(os.path.join(tmp, src), dst)
                     made.append(dst)
-            except FileExistsError:
+            except OSError as e:
+                # Any failure, not only a name that already exists (ENOSPC,
+                # EIO...): leaving one half linked would block every later
+                # attempt with self-signed-half-pair.
                 for dst in made:
-                    os.unlink(dst)
-                return False
+                    try:
+                        os.unlink(dst)
+                    except OSError:
+                        pass
+                if isinstance(e, FileExistsError):
+                    return False
+                raise IdentityError(f'could not create the self-signed pair: {e.strerror}') from e
             return True
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

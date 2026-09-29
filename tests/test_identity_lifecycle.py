@@ -335,6 +335,21 @@ class OnePasswordWindowTests(LifecycleFixture):
         self.assertEqual(rc, 1)
         self.assertIn('Turn Omdrop off first', err)
 
+    def test_use_is_refused_when_the_old_cache_cannot_be_cleared(self):
+        self.on()
+        self.off()
+        before = (self.config / 'omdrop' / 'settings').read_text()
+        cached = FakeKeyring.store['payload']
+
+        def broken_revoke(self):
+            raise ident.KeyringError('revoking: Permission denied')
+        with unittest.mock.patch.object(FakeKeyring, 'revoke', broken_revoke):
+            rc, _, err = self.run_cmd('use', 'item1')
+        self.assertEqual(rc, 1)
+        self.assertIn('Could not clear the cached identity', err)
+        self.assertEqual((self.config / 'omdrop' / 'settings').read_text(), before)
+        self.assertEqual(FakeKeyring.store['payload'], cached)
+
     def test_a_lock_while_use_is_out_prevents_its_commit(self):
         real = lifecycle.op_read_files
 
@@ -404,6 +419,24 @@ class ImportTests(LifecycleFixture):
         self.assertEqual(rc, 0, err)
         self.assertEqual(sum('item create' in c for c in self.op_calls()), creates)
         self.assertFalse((self.keys / 'key.pem').exists())
+
+    def test_a_superseded_import_does_not_record_its_item(self):
+        # Another identity command runs while import is creating its item.
+        real = lifecycle.account_id
+
+        def use_meanwhile(user, deadline):
+            account = real(user, deadline)
+            with ident._Flock(user.lock):
+                lifecycle.bump(user, 'gen')
+            lifecycle.setting_set(user, identity_op_item='chosen-elsewhere')
+            return account
+        with unittest.mock.patch.object(lifecycle, 'account_id', use_meanwhile):
+            rc, _, err = self.run_cmd('import')
+        self.assertEqual(rc, 1)
+        self.assertIn('item1', err)
+        s = ident.parse_settings((self.config / 'omdrop' / 'settings').read_text())
+        self.assertEqual(s['identity_op_item'], 'chosen-elsewhere')
+        self.assertTrue((self.keys / 'key.pem').exists())
 
     def test_a_window_opened_during_import_keeps_every_file(self):
         real = lifecycle.op_read_files

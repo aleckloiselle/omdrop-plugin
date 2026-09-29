@@ -434,26 +434,42 @@ class Superseded(Exception):
     pass
 
 
+def _check_current(user, generation):
+    """Under the lock: refuse if a window opened or the generation moved."""
+    if window_open(user):
+        raise Superseded('Turn Omdrop off first.')
+    if counter(user, 'gen') != generation:
+        raise Superseded('Cancelled: the identity settings changed meanwhile.')
+
+
+def save_item_ids(user, account, vault, item, generation):
+    """Record a newly created item's IDs, mode unchanged, under the same checks
+    as a commit: a superseded import must not overwrite a newer choice."""
+    with ident._Flock(user.lock):
+        _check_current(user, generation)
+        setting_set(user, identity_op_account=account, identity_op_vault=vault,
+                    identity_op_item=item)
+
+
 def adopt(user, account, vault, item, generation):
     """Commit to a 1Password item, under the lock.
 
     Refused if a window opened or another identity command ran since this one
-    began. The IDs are saved first and the mode last, the mode write being the
-    commit point; then the cache is cleared, because it may hold a different
-    identity, and the generation moves so no fetch still out can publish it.
+    began. The old cache is cleared first, and a failure to clear it refuses
+    the commit: the cache may hold a different identity, and the next window
+    would present it. Then the IDs are saved and the mode last, the mode write
+    being the commit point, and the generation moves so no fetch still out can
+    publish.
     """
     with ident._Flock(user.lock):
-        if window_open(user):
-            raise Superseded('Turn Omdrop off first.')
-        if counter(user, 'gen') != generation:
-            raise Superseded('Cancelled: the identity settings changed meanwhile.')
+        _check_current(user, generation)
+        try:
+            ident.Keyring().revoke()
+        except ident.KeyringError as e:
+            raise Superseded(f'Could not clear the cached identity ({e}); nothing changed.') from e
         setting_set(user, identity_op_account=account, identity_op_vault=vault,
                     identity_op_item=item)
         setting_set(user, identity_source='1password')
-        try:
-            ident.Keyring().revoke()
-        except ident.KeyringError:
-            pass
         bump(user, 'gen')
         kill_fetch(user)
 
@@ -507,11 +523,13 @@ def cmd_import(args, user):
             # Saved straight away, with the mode unchanged: if anything below
             # fails, a rerun finds this item instead of creating another.
             try:
-                setting_set(user, identity_op_account=account, identity_op_vault=vault,
-                            identity_op_item=item)
+                save_item_ids(user, account, vault, item, generation)
             except OSError as e:
                 warn(f'Could not save the settings ({e}). The item is {item}; '
                      f'run: omdrop identity 1password use {item}')
+                return 1
+            except Superseded as e:
+                warn(f'{e} The new 1Password item is {item}; nothing was deleted.')
                 return 1
             stored = op_read_files(user, account, vault, item, deadline)
             if stored != present:

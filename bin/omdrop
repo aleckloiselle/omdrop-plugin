@@ -1086,6 +1086,9 @@ cmd_on() {
     unit_install "$plugin" || true
     prepare_identity >&2 || return 1
     ensure_tls; (( $? == 2 )) && return 1
+    # The unit may write opt-in protocol dumps only here (ReadWritePaths= with
+    # `-`, ignored when absent), and its sandbox cannot create the directory.
+    (umask 077 && mkdir -p -- "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omdrop/debug") || true
     systemctl --user reset-failed "$UNIT" >/dev/null 2>&1 || true
     systemctl --user start "$UNIT"
   }

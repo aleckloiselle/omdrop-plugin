@@ -46,8 +46,10 @@ def dump(name, data):
                 out = f'<opaque {len(data)} bytes>'.encode()
         path = os.path.join(directory(), name)
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        tmp = f'{path}.{os.getpid()}.tmp'
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # mkstemp, not a pid-based name: the receiver is threaded, and two
+        # exchanges at once would otherwise share one temporary file.
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix=f'.{name}.', dir=os.path.dirname(path))
         try:
             os.write(fd, out)
         finally:

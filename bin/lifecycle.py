@@ -26,6 +26,11 @@ import identity as ident
 FETCH_SECONDS = 60
 DEFAULT_HOURS = 12
 FILES = ('certificate.pem', 'key.pem', 'validation_record.cms')
+# The attachments' names in the 1Password item. Without dots: in an
+# `op item create` assignment a dot separates a section from a field, so
+# "certificate.pem[file]=" made a section "certificate" holding a file "pem".
+OP_NAMES = {'certificate.pem': 'certificate', 'key.pem': 'key',
+            'validation_record.cms': 'validation_record'}
 DEFAULT_TITLE = 'Omdrop AirDrop identity'
 
 
@@ -82,13 +87,13 @@ def cache_hours(user):
 
 
 def kill_fetch(user):
-    pgid = read_state(user).get('fetch_pgid', '')
-    if pgid.isdigit():
+    pid = read_state(user).get('fetch_pid', '')
+    if pid.isdigit():
         try:
-            os.killpg(int(pgid), signal.SIGTERM)
+            os.kill(int(pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
-    write_state(user, fetch_pgid=None)
+    write_state(user, fetch_pid=None)
 
 
 def say(**fields):
@@ -129,7 +134,13 @@ def op_binary():
 
 
 def op_run(user, args, deadline, input=None):
-    """Run the 1Password CLI in its own process group, recorded so it can be killed."""
+    """Run the 1Password CLI, recorded so `off` or `identity lock` can kill it.
+
+    In this process's own session, deliberately: 1Password's app integration
+    grants an approval per session, so a new session for each call made every
+    call prompt again. `op` is a single binary with no children, so killing its
+    pid is enough.
+    """
     op = op_binary()
     if not op:
         raise FetchFailed('1Password CLI (op) is not installed')
@@ -137,24 +148,24 @@ def op_run(user, args, deadline, input=None):
     if left <= 0:
         raise FetchFailed(f'1Password did not answer within {FETCH_SECONDS} s')
     proc = subprocess.Popen([op, *args], stdin=subprocess.PIPE if input else subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            start_new_session=True)
-    write_state(user, fetch_pgid=proc.pid)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    write_state(user, fetch_pid=proc.pid)
     try:
         out, err = proc.communicate(input=input, timeout=left)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        proc.kill()
         proc.communicate()
         raise FetchFailed(f'1Password did not answer within {FETCH_SECONDS} s')
     finally:
-        write_state(user, fetch_pgid=None)
+        write_state(user, fetch_pid=None)
     if proc.returncode < 0:
         raise FetchFailed('the 1Password request was cancelled')
     if proc.returncode != 0:
+        import re
         detail = err.decode(errors='replace').strip().splitlines()
         reason = detail[-1] if detail else f'exit {proc.returncode}'
-        # op prefixes its messages with a timestamped [ERROR]; keep the sentence.
-        reason = reason.split('] ', 1)[-1][:160]
+        # op writes "[ERROR] 2026/09/28 23:06:41 message"; keep the message.
+        reason = re.sub(r'^\[\w+\]\s+\d{4}/\d\d/\d\d \d\d:\d\d:\d\d\s+', '', reason)[:300]
         raise FetchFailed(f'1Password: {reason}')
     return out
 
@@ -174,7 +185,7 @@ def op_read_files(user, account, vault, item, deadline):
         args = ['read', '--no-newline']
         if account:
             args += ['--account', account]
-        files[name] = op_run(user, [*args, f'op://{vault}/{item}/{name}'], deadline)
+        files[name] = op_run(user, [*args, f'op://{vault}/{item}/{OP_NAMES[name]}'], deadline)
     return files
 
 
@@ -447,7 +458,7 @@ def cmd_import(args, user):
             create = ['item', 'create', '--category', 'Secure Note', '--title', args.title]
             if args.vault:
                 create += ['--vault', args.vault]
-            create += [f'{f}[file]={user.path(f)}' for f in FILES]
+            create += [f'{OP_NAMES[f]}[file]={user.path(f)}' for f in FILES]
             made = op_json(user, create, deadline)
             item = made.get('id', '')
             vault = (made.get('vault') or {}).get('id', '')

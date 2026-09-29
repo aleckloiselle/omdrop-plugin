@@ -161,7 +161,7 @@ class LifecycleFixture(unittest.TestCase):
         item = self.opdir / 'items' / 'item1'
         item.mkdir(exist_ok=True)
         for name, data in (files or self.apple).items():
-            (item / name).write_bytes(data)
+            (item / lifecycle.OP_NAMES[name]).write_bytes(data)
 
     def op_calls(self):
         path = self.opdir / 'calls'
@@ -244,7 +244,7 @@ class OnePasswordWindowTests(LifecycleFixture):
         self.assertEqual(win['source'], 'self-signed')
 
     def test_a_partial_fetch_publishes_nothing(self):
-        (self.opdir / 'items' / 'item1' / 'validation_record.cms').unlink()
+        (self.opdir / 'items' / 'item1' / 'validation_record').unlink()
         _, begun, win = self.on()
         self.assertIn('notice', begun)
         self.assertNotIn('payload', FakeKeyring.store)
@@ -332,7 +332,7 @@ class ImportTests(LifecycleFixture):
         self.assertEqual([p.name for p in self.keys.iterdir() if p.name in lifecycle.FILES], [])
 
     def test_a_readback_that_differs_deletes_nothing(self):
-        os.environ['OP_STUB_CORRUPT'] = 'key.pem'
+        os.environ['OP_STUB_CORRUPT'] = 'key'
         rc, _, err = self.run_cmd('import')
         self.assertEqual(rc, 1)
         self.assertIn('nothing was deleted', err)

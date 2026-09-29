@@ -315,6 +315,41 @@ class OnePasswordWindowTests(LifecycleFixture):
             self.off()
         self.assertNotIn('payload', FakeKeyring.store)
 
+    def test_using_another_item_clears_the_old_items_cache(self):
+        self.on()
+        self.off()
+        self.assertIn('payload', FakeKeyring.store)
+        self.assertEqual(self.run_cmd('use', 'item1')[0], 0)
+        self.assertNotIn('payload', FakeKeyring.store)
+
+    def test_a_window_opened_while_use_is_out_prevents_its_commit(self):
+        real = lifecycle.op_read_files
+
+        def open_window_meanwhile(*a, **kw):
+            files = real(*a, **kw)
+            # What `omdrop on` leaves while `use` talks to 1Password.
+            ident._write_private(ident.User().window, 'source=self-signed\n')
+            return files
+        with unittest.mock.patch.object(lifecycle, 'op_read_files', open_window_meanwhile):
+            rc, _, err = self.run_cmd('use', 'item1')
+        self.assertEqual(rc, 1)
+        self.assertIn('Turn Omdrop off first', err)
+
+    def test_a_lock_while_use_is_out_prevents_its_commit(self):
+        real = lifecycle.op_read_files
+
+        def lock_meanwhile(*a, **kw):
+            files = real(*a, **kw)
+            self.run_cmd('lock')
+            return files
+        self.settings(identity_source='self-signed')
+        with unittest.mock.patch.object(lifecycle, 'op_read_files', lock_meanwhile):
+            rc, _, err = self.run_cmd('use', 'item1')
+        self.assertEqual(rc, 1)
+        self.assertIn('changed meanwhile', err)
+        s = ident.parse_settings((self.config / 'omdrop' / 'settings').read_text())
+        self.assertEqual(s['identity_source'], 'self-signed')
+
 
 class ImportTests(LifecycleFixture):
     def setUp(self):

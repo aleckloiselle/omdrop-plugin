@@ -86,14 +86,24 @@ def cache_hours(user):
     return DEFAULT_HOURS
 
 
+# The pid of a running `op`, in its own file rather than in `state`: op_run
+# records it without the lock, and a read-modify-write of `state` there could
+# otherwise overwrite a concurrent bump of `seq` or `gen`.
+def _fetch_pid_path(user):
+    return os.path.join(user.state_dir, 'fetch.pid')
+
+
 def kill_fetch(user):
-    pid = read_state(user).get('fetch_pid', '')
+    pid = (ident._read(_fetch_pid_path(user)) or '').strip()
     if pid.isdigit():
         try:
             os.kill(int(pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
-    write_state(user, fetch_pid=None)
+    try:
+        os.unlink(_fetch_pid_path(user))
+    except FileNotFoundError:
+        pass
 
 
 def say(**fields):
@@ -149,7 +159,7 @@ def op_run(user, args, deadline, input=None):
         raise FetchFailed(f'1Password did not answer within {FETCH_SECONDS} s')
     proc = subprocess.Popen([op, *args], stdin=subprocess.PIPE if input else subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    write_state(user, fetch_pid=proc.pid)
+    ident._write_private(_fetch_pid_path(user), f'{proc.pid}\n')
     try:
         out, err = proc.communicate(input=input, timeout=left)
     except subprocess.TimeoutExpired:
@@ -157,7 +167,10 @@ def op_run(user, args, deadline, input=None):
         proc.communicate()
         raise FetchFailed(f'1Password did not answer within {FETCH_SECONDS} s')
     finally:
-        write_state(user, fetch_pid=None)
+        try:
+            os.unlink(_fetch_pid_path(user))
+        except FileNotFoundError:
+            pass
     if proc.returncode < 0:
         raise FetchFailed('the 1Password request was cancelled')
     if proc.returncode != 0:
@@ -417,11 +430,32 @@ def account_id(user, deadline):
     return ''                  # several accounts: op's own default decides
 
 
-def adopt(user, account, vault, item):
-    """Save the IDs first, then the mode: the mode write is the commit point."""
-    setting_set(user, identity_op_account=account, identity_op_vault=vault,
-                identity_op_item=item)
-    setting_set(user, identity_source='1password')
+class Superseded(Exception):
+    pass
+
+
+def adopt(user, account, vault, item, generation):
+    """Commit to a 1Password item, under the lock.
+
+    Refused if a window opened or another identity command ran since this one
+    began. The IDs are saved first and the mode last, the mode write being the
+    commit point; then the cache is cleared, because it may hold a different
+    identity, and the generation moves so no fetch still out can publish it.
+    """
+    with ident._Flock(user.lock):
+        if window_open(user):
+            raise Superseded('Turn Omdrop off first.')
+        if counter(user, 'gen') != generation:
+            raise Superseded('Cancelled: the identity settings changed meanwhile.')
+        setting_set(user, identity_op_account=account, identity_op_vault=vault,
+                    identity_op_item=item)
+        setting_set(user, identity_source='1password')
+        try:
+            ident.Keyring().revoke()
+        except ident.KeyringError:
+            pass
+        bump(user, 'gen')
+        kill_fetch(user)
 
 
 def cmd_import(args, user):
@@ -429,6 +463,7 @@ def cmd_import(args, user):
         if window_open(user):
             warn('Turn Omdrop off first.')
             return 1
+        generation = counter(user, 'gen')
     deadline = time.monotonic() + 5 * FETCH_SECONDS
     present = {f: ident._read(user.path(f), 'rb') for f in FILES}
     s = settings(user)
@@ -447,7 +482,7 @@ def cmd_import(args, user):
                 if problem:
                     warn(f'The 1Password item is not usable: {problem}; nothing was deleted.')
                     return 1
-                adopt(user, account, vault, item)
+                adopt(user, account, vault, item, generation)
         else:
             if None in present.values():
                 warn('Nothing to import: ' + ', '.join(f for f, d in present.items() if d is None)
@@ -483,13 +518,16 @@ def cmd_import(args, user):
                 warn(f'The 1Password item {item} does not match the files; nothing was deleted.')
                 return 1
             try:
-                adopt(user, account, vault, item)
+                adopt(user, account, vault, item, generation)
             except OSError as e:
                 warn(f'Could not save the settings ({e}); nothing was deleted. '
                      'Run the import again to finish.')
                 return 1
     except FetchFailed as e:
         warn(f'{e}; nothing was deleted.')
+        return 1
+    except Superseded as e:
+        warn(f'{e} Nothing was deleted.')
         return 1
     # Committed. The key first: it is the one that matters most.
     for f in ('key.pem', 'validation_record.cms', 'certificate.pem'):
@@ -507,7 +545,7 @@ def cmd_use(args, user):
         if window_open(user):
             warn('Turn Omdrop off first.')
             return 1
-        bump(user, 'gen')
+        generation = bump(user, 'gen')
         kill_fetch(user)
     deadline = time.monotonic() + FETCH_SECONDS
     try:
@@ -526,7 +564,11 @@ def cmd_use(args, user):
     if problem:
         warn(f'That item is not usable: {problem}.')
         return 1
-    adopt(user, account, vault, item)
+    try:
+        adopt(user, account, vault, item, generation)
+    except Superseded as e:
+        warn(str(e))
+        return 1
     warn('Omdrop now uses that 1Password item. The next `omdrop on` fetches it.')
     return 0
 

@@ -220,8 +220,8 @@ GIB = 1024 * MIB
 # Metadata, framing, member count, and idle time have fixed ceilings. Transfer
 # bytes use a percentage of free space computed when the upload starts; users
 # configure that percentage with `omdrop limit`.
-READ_IDLE_TIMEOUT_SECONDS = 30
-INITIAL_READ_SECONDS = 60
+READ_IDLE_TIMEOUT_SECONDS = 120
+INITIAL_READ_SECONDS = 120
 MIN_READ_BYTES_PER_SECOND = 64 * KIB
 MAX_METADATA_BYTES = 1 * MIB
 MAX_ARCHIVE_MEMBERS = 512

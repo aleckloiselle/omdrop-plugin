@@ -51,6 +51,14 @@ plugin_dir(){{ echo /plugin; }}
 unit_install(){{ return 1; }}
 prepare_identity(){{ :; }}
 ensure_tls(){{ return 1; }}
+# The identity step has its own tests; here it settles on self-signed.
+ID_EXPIRY=omdrop-identity-expiry
+id_py(){{ case "$1" in begin) echo seq=0 ;; window) echo source=self-signed ;; esac; }}
+ID_PY=id_py
+identity_lock(){{ :; }}
+identity_unlock(){{ :; }}
+identity_notice(){{ log "notice $*"; }}
+effective_name(){{ echo test; }}
 # cmd_on brings the radio up through the spinner, which lives outside this
 # fragment. Run the command and drop the animation: what this file tests is
 # the ORDER the window is armed in, and a spinner would only add frames.
